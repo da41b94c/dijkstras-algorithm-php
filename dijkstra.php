@@ -1,88 +1,120 @@
 <?php
 
-$target = 'D';
+declare(strict_types=1);
 
-// Граф для моделирования связи между узлами (определения соседей)
-$graph = [
-	'A' => [
-		'B' => 9,
-		'C' => 3,
-	],
-	'C' => [
-		'B' => 4,
-		'D' => 7,
-	],
-	'B' => [
-		'D' => 1,		
-	],	
-	'D' => []
-];
+require_once __DIR__ . '/src/Dijkstra.php';
 
-// Хранит время, которое потребуется для перехода к узлу от начального узла A
-$times = [
-	'B' => 9, // Из точки А в точку B можно добраться за 9 минут
-	'C' => 3,
-	'D' => INF // Неизвестно (равно бесконечности) время, которое потребуется, чтобы добраться из точки А в точку D
-];
-
-$parents = [
-	'B' => 'A',
-	'C' => 'A',
-	'D' => null,
-];
-
-
-class dijkstra {
-
-	private $checked;
-	
-	public function __construct()
+/**
+ * Backward-compatible adapter for the original API.
+ *
+ * @deprecated Use Da41b94c\Dijkstra\Dijkstra instead.
+ */
+if (!class_exists('dijkstra', false)) {
+	class dijkstra
 	{
-		$this->checked = [];
-	}
-	
-	function findFastestNode( $times )
-	{
-		$minTime = INF;
-		$fastestNode = null;
-		foreach( $times as $n => $time )
-		{		
-			if( $time < $minTime AND !in_array( $n, $this->checked ) )
-			{
-				$minTime = $time;
-				$fastestNode = $n;
-			}
-		}
-		return $fastestNode;
-	}
+		/** @var array<array-key, true> */
+		private array $checked = [];
 
-	public function find( $graph, $times, $parents, $target )
-	{	
-		$node = $this->findFastestNode( $times );		
-		while( $node != null )
+		/**
+		 * @param array<array-key, int|float> $times
+		 */
+		public function findFastestNode(array $times): int|string|null
 		{
-			$time = $times[ $node ];
-			$neighbors = $graph[ $node ];
-			foreach( $neighbors as $neighborNode => $neighborTime )
-			{
-				$newTime = $time + $neighborTime;
-				if( $times[ $neighborNode ] > $newTime )
-				{
-					$times[ $neighborNode ] = $newTime;
-					$parents[ $neighborNode ] = $node;
+			$minTime = INF;
+			$fastestNode = null;
+
+			foreach ($times as $node => $time) {
+				if (!is_int($time) && !is_float($time)) {
+					throw new \InvalidArgumentException('Every time must be an integer, float or INF.');
+				}
+
+				if (($time !== INF && !is_finite((float) $time)) || $time < 0) {
+					throw new \InvalidArgumentException('Every time must be non-negative, finite or INF.');
+				}
+
+				if ($time < $minTime && !isset($this->checked[$node])) {
+					$minTime = $time;
+					$fastestNode = $node;
 				}
 			}
-			array_push( $this->checked, $node );
-			$node = $this->findFastestNode( $times );
+
+			return $fastestNode;
 		}
-		// echo '<pre>', var_dump( $times ) ,'</pre>';		
-		// echo '<pre>', var_dump( $parents ) ,'</pre>';		
-		return $times[ $target ];
+
+		/**
+		 * @param array<array-key, array<array-key, int|float>> $graph
+		 * @param array<array-key, int|float> $times
+		 * @param array<array-key, array-key|null> $parents
+		 */
+		public function find(array $graph, array $times, array $parents, int|string $target): int|float
+		{
+			$this->checked = [];
+
+			if (!array_key_exists($target, $graph) && !array_key_exists($target, $times)) {
+				throw new \InvalidArgumentException(sprintf(
+					'Target vertex "%s" does not exist.',
+					(string) $target,
+				));
+			}
+
+			$node = $this->findFastestNode($times);
+
+			while ($node !== null) {
+				if (!isset($graph[$node]) || !is_array($graph[$node])) {
+					throw new \InvalidArgumentException(sprintf(
+						'Neighbors of vertex "%s" must be an array.',
+						(string) $node,
+					));
+				}
+
+				$time = $times[$node];
+
+				foreach ($graph[$node] as $neighbor => $weight) {
+					if ((!is_int($weight) && !is_float($weight)) || !is_finite((float) $weight) || $weight < 0) {
+						throw new \InvalidArgumentException(sprintf(
+							'Weight of edge "%s" -> "%s" must be finite and non-negative.',
+							(string) $node,
+							(string) $neighbor,
+						));
+					}
+
+					$graph[$neighbor] ??= [];
+					$times[$neighbor] ??= INF;
+					$newTime = $time + $weight;
+
+					if ($newTime < $times[$neighbor]) {
+						$times[$neighbor] = $newTime;
+						$parents[$neighbor] = $node;
+					}
+				}
+
+				$this->checked[$node] = true;
+				$node = $this->findFastestNode($times);
+			}
+
+			return $times[$target] ?? INF;
+		}
 	}
-		
 }
 
-$alg = new dijkstra();
-$minTime = $alg->find( $graph, $times, $parents, $target );
-echo 'Минимальное время из А в '. $target .' составляет: '. $minTime;
-	
+if (
+	PHP_SAPI === 'cli'
+	&& isset($_SERVER['SCRIPT_FILENAME'])
+	&& realpath($_SERVER['SCRIPT_FILENAME']) === __FILE__
+) {
+	$graph = [
+		'A' => ['B' => 9, 'C' => 3],
+		'C' => ['B' => 4, 'D' => 7],
+		'B' => ['D' => 1],
+		'D' => [],
+	];
+
+	$algorithm = new Da41b94c\Dijkstra\Dijkstra();
+	$result = $algorithm->findShortestPath($graph, 'A', 'D');
+
+	echo sprintf(
+		"Minimum distance from A to D: %s; path: %s\n",
+		(string) $result['distance'],
+		implode(' -> ', $result['path']),
+	);
+}
